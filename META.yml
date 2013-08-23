@@ -21,6 +21,7 @@ requires:
   HTTP::Request::Common: 0
   JSON: 0
   LWP::UserAgent: 0
+  perl: 5.010
   strict: 0
   warnings: 0
-version: 1.00
+version: 1.01
