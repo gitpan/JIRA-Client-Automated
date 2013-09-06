@@ -2,7 +2,7 @@ NAME
     JIRA::Client::Automated - A JIRA REST Client for automated scripts
 
 VERSION
-    version 1.01
+    version 1.02
 
 SYNOPSIS
         use JIRA::Client::Automated;
