@@ -1,3 +1,10 @@
+1.03      2014-02-21 20:50:45-08:00 America/Los_Angeles
+    Modified module to use authorization_basic() instead of in-URL passwords.
+    Added dependency on LWP::Protocol::https to allow secure connections.
+    Added ua() function to allow users to add in proxy information.
+    (Based on patches from Dominique Dumont <ddumont@cpan.org>.)
+    Updated copyright date and minor documentation fixes.
+
 1.02      2013-09-06 13:03:47 America/Los_Angeles
     Updated distribution package for better CPANTS score.
     Fixed "use of uninitialized value $1 in substitution iterator" when using non-HTTPS URLs.
