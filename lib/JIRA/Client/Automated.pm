@@ -3,14 +3,14 @@ use strict;
 use warnings;
 
 package JIRA::Client::Automated;
-$JIRA::Client::Automated::VERSION = '1.03';
+$JIRA::Client::Automated::VERSION = '1.04';
 =head1 NAME
 
 JIRA::Client::Automated - A JIRA REST Client for automated scripts
 
 =head1 VERSION
 
-version 1.03
+version 1.04
 
 =head1 SYNOPSIS
 
