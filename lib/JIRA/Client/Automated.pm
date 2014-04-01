@@ -3,29 +3,58 @@ use strict;
 use warnings;
 
 package JIRA::Client::Automated;
-$JIRA::Client::Automated::VERSION = '1.04';
+$JIRA::Client::Automated::VERSION = '1.05';
 =head1 NAME
 
 JIRA::Client::Automated - A JIRA REST Client for automated scripts
 
 =head1 VERSION
 
-version 1.04
+version 1.05
 
 =head1 SYNOPSIS
 
     use JIRA::Client::Automated;
 
     my $jira = JIRA::Client::Automated->new($url, $user, $password);
+
     my $jira_ua = $jira->ua(); # to add in a proxy
+
+    # The simplest way to create an issue
     my $issue = $jira->create_issue($project, $type, $summary, $description);
+
+    # The simplest way to create a subtask
+    my $subtask = $jira->create_subtask($project, $summary, $description, $parent_key);
+
+    # A complex but flexible way to create a new issue, story, task or subtask
+    # if you know Jira issue hash structure well.
+    my $issue = $jira->create({
+        # Jira issue 'fields' hash
+        project     => {
+            key => $project,
+        },
+        issuetype   => {
+            name => $type,      # "Bug", "Task", "Sub-task", etc.
+        },
+        summary     => $summary,
+        description => $description,
+        parent      => {        # only required for a subtask
+            key => $parent_key,
+        },
+        ...
+    });
+
+
     my $search_results = $jira->search_issues($jql, 1, 100); # query should be a single string of JQL
     my @issues = $jira->all_search_results($jql, 1000); # query should be a single string of JQL
     my $issue = $jira->get_issue($key);
+
     $jira->update_issue($key, $update_hash); # update_hash is { field => value, ... }
     $jira->create_comment($key, $text);
     $jira->attach_file_to_issue($key, $filename);
+
     $jira->transition_issue($key, $transition, $transition_hash); # transition_hash is { field => value, ... }
+
     $jira->close_issue($key, $resolve, $message); # resolve is the resolution value
     $jira->delete_issue($key);
 
@@ -163,25 +192,34 @@ sub ua {
     return $self->{_ua};
 }
 
-=head2 create_issue
+=head2 create
 
-    my $issue = $jira->create_issue($project, $type, $summary, $description);
+    my $issue = $jira->create({
+        # Jira issue 'fields' hash
+        project     => {
+            key => $project,
+        },
+        issuetype   => {
+            name => $type,      # "Bug", "Task", "SubTask", etc.
+        },
+        summary     => $summary,
+        description => $description,
+        parent      => {        # only required for a subtask
+            key => $parent_key,
+        },
+        ...
+    });
 
-Creating a new issue requires the project key, type ("Bug", "Task", etc.), and a summary and description. Other fields that are on the new issue form could be supported by a subclass, but it's probably easier to use L</"update_issue"> with JIRA's syntax for now.
+Creating a new issue, story, task, subtask, etc.
 
 Returns a hash containing the information about the new issue or dies if there is an error. See L</"JIRA ISSUE HASH FORMAT"> for details of the hash.
 
 =cut
 
-sub create_issue {
-    my ($self, $project, $type, $summary, $description) = @_;
+sub create {
+    my ($self, $fields) = @_;
 
-    my $issue = {
-        fields => {
-            summary     => $summary,
-            description => $description,
-            issuetype   => { name => $type, },
-            project     => { key => $project, } } };
+    my $issue = { fields => $fields };
 
     my $issue_json = $self->{_json}->encode($issue);
     my $uri        = "$self->{auth_url}issue/";
@@ -195,12 +233,65 @@ sub create_issue {
     my $response = $self->{_ua}->request($request);
 
     if (!$response->is_success()) {
-        die "Error creating new JIRA issue $summary " . $response->status_line();
+        die "Error creating new JIRA issue $fields->{summary} " . $response->status_line();
     }
 
     my $new_issue = $self->{_json}->decode($response->decoded_content());
 
     return $new_issue;
+}
+
+=head2 create_issue
+
+    my $issue = $jira->create_issue($project, $type, $summary, $description);
+
+Creating a new issue requires the project key, type ("Bug", "Task", etc.), and a summary and description. Other fields that are on the new issue form could be supported by a subclass, but it's probably easier to use L</"update_issue"> with JIRA's syntax for now.
+
+Returns a hash containing the information about the new issue or dies if there is an error. See L</"JIRA ISSUE HASH FORMAT"> for details of the hash.
+
+=cut
+
+sub create_issue {
+    my ($self, $project, $type, $summary, $description) = @_;
+
+    my $fields = {
+        summary     => $summary,
+        description => $description,
+        issuetype   => { name => $type, },
+        project     => { key => $project, },
+    };
+
+    return $self->create($fields);
+}
+
+=head2 create_subtask
+
+    my $subtask = $jira->create_subtask($project, $summary, $description, $parent_key);
+    # or with optional subtask type
+    my $subtask = $jira->create_subtask($project, $summary, $description, $parent_key, 'sub-task');
+
+Creating a subtask. If your JIRA instance does not call subtasks "Sub-task" or "sub-task", then you will need to pass in your subtask type.
+
+Returns a hash containing the information about the new issue or dies if there is an error. See L</"JIRA ISSUE HASH FORMAT"> for details of the hash.
+
+=cut
+
+sub create_subtask {
+    my ($self, $project, $summary, $description, $parent_key, $type) = @_;
+
+    # validate fields
+    die "parent_key required" unless $parent_key;
+    $type ||= 'Sub-task';
+
+    my $fields = {
+        project     => { key => $project, },
+        issuetype   => { name => $type },
+        summary     => $summary,
+        description => $description,
+        parent      => { key  => $parent_key},
+    };
+
+    return $self->create($fields);
 }
 
 =head2 update_issue
@@ -607,6 +698,13 @@ Thanks very much to:
 =item Dominique Dumont <ddumont@cpan.org>
 
 =back
+
+=over 4
+
+=item Zhuang (John) Li <7humblerocks@gmail.com>
+
+=back
+
 
 =head1 COPYRIGHT AND LICENSE
 
