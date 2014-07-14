@@ -21,6 +21,7 @@ my %WriteMakefileArgs = (
   "LICENSE" => "perl",
   "NAME" => "JIRA::Client::Automated",
   "PREREQ_PM" => {
+    "Carp" => 0,
     "HTTP::Request" => 0,
     "HTTP::Request::Common" => 0,
     "JSON" => 0,
@@ -35,7 +36,7 @@ my %WriteMakefileArgs = (
     "Test::Exception" => 0,
     "Test::More" => 0
   },
-  "VERSION" => "1.05",
+  "VERSION" => "1.1",
   "test" => {
     "TESTS" => "t/*.t"
   }
@@ -43,6 +44,7 @@ my %WriteMakefileArgs = (
 
 
 my %FallbackPrereqs = (
+  "Carp" => 0,
   "File::Spec" => 0,
   "File::Temp" => 0,
   "HTTP::Request" => 0,

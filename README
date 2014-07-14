@@ -4,7 +4,7 @@ NAME
 
 VERSION
 
-    version 1.05
+    version 1.1
 
 SYNOPSIS
 
@@ -13,6 +13,8 @@ SYNOPSIS
         my $jira = JIRA::Client::Automated->new($url, $user, $password);
     
         my $jira_ua = $jira->ua(); # to add in a proxy
+    
+        $jira->trace(1); # enable tracing of requests and responses
     
         # The simplest way to create an issue
         my $issue = $jira->create_issue($project, $type, $summary, $description);
@@ -41,6 +43,7 @@ SYNOPSIS
     
         my $search_results = $jira->search_issues($jql, 1, 100); # query should be a single string of JQL
         my @issues = $jira->all_search_results($jql, 1000); # query should be a single string of JQL
+    
         my $issue = $jira->get_issue($key);
     
         $jira->update_issue($key, $update_hash); # update_hash is { field => value, ... }
@@ -49,7 +52,7 @@ SYNOPSIS
     
         $jira->transition_issue($key, $transition, $transition_hash); # transition_hash is { field => value, ... }
     
-        $jira->close_issue($key, $resolve, $message); # resolve is the resolution value
+        $jira->close_issue($key, $resolve, $comment); # resolve is the resolution value
         $jira->delete_issue($key);
 
 DESCRIPTION
@@ -94,16 +97,17 @@ JIRA ISSUE HASH FORMAT
     JIRA::Client::Automated tries to be nice to you and not make you deal
     directly with JSON. When you create a new issue, you can pass in just
     the pieces you want and "create_issue" will transform them to JSON for
-    you. The same for closing and deleting issues. However there's not much
-    I can do about updating or transitioning issues. Each JIRA installation
-    will have different fields available for each issue type and transition
-    screen and only you will know what they are. So in those cases you'll
-    need to pass in an "update_hash" which will be transformed to the
-    proper JSON by the method.
+    you. The same for closing and deleting issues.
+
+    Updating and transitioning issues is more complex. Each JIRA
+    installation will have different fields available for each issue type
+    and transition screen and only you will know what they are. So in those
+    cases you'll need to pass in an "update_hash" which will be transformed
+    to the proper JSON by the method.
 
     An update_hash looks like this:
 
-        { field => value, field2 => value2, ...}
+        { field1 => value, field2 => value2, ...}
 
     For example:
 
@@ -120,9 +124,9 @@ JIRA ISSUE HASH FORMAT
     helpfully translate it to and from regular hashes for you. You only
     pass hashes to JIRA::Client::Automated, not direct JSON.
 
-    But, since you aren't going to read the documentation, I recommend
-    connecting to your JIRA server and calling "get_issue" with a key you
-    know exists and then dump the result. That'll get you started.
+    I recommend connecting to your JIRA server and calling "get_issue" with
+    a key you know exists and then dump the result. That'll get you
+    started.
 
 METHODS
 
@@ -140,8 +144,8 @@ METHODS
       3. Password for that user
 
     All three parameters are required. JIRA::Client::Automated must connect
-    to the JIRA instance using some username and password. I recommend
-    setting up a special "auto" or "batch" username to use just for use by
+    to the JIRA instance using some username and password. You may want to
+    set up a special "auto" or "batch" username to use just for use by
     scripts.
 
     If you are using Google Account integration, the username and password
@@ -151,13 +155,24 @@ METHODS
 
  ua
 
-        my $jira_ua = $jira->ua();
+        my $ua = $jira->ua();
 
     Returns the LWP::UserAgent object used to connect to the JIRA instance.
     Typically used to setup proxies or make other customizations to the
     UserAgent. For example:
 
-        $jira->ua()->env_proxy();
+        my $ua = $jira->ua();
+        $ua->env_proxy();
+        $ua->ssl_opts(...);
+        $ua->conn_cache( LWP::ConnCache->new() );
+
+ trace
+
+        $jira->trace(1);       # enable
+        $jira->trace(0);       # disable
+        $trace = $jira->trace;
+
+    When tracing is enabled each request and response is logged using carp.
 
  create
 
@@ -179,22 +194,36 @@ METHODS
 
     Creating a new issue, story, task, subtask, etc.
 
-    Returns a hash containing the information about the new issue or dies
-    if there is an error. See "JIRA ISSUE HASH FORMAT" for details of the
-    hash.
+    Returns a hash containing only the basic information about the new
+    issue, or dies if there is an error. The hash looks like:
+
+        {
+            id => 24066,
+            key => "TEST-57",
+            self => "https://example.atlassian.net/rest/api/latest/issue/24066"
+        }
+
+    See also
+    https://developer.atlassian.com/display/JIRADEV/JIRA+REST+API+Example+-
+    +Create+Issue
 
  create_issue
 
-        my $issue = $jira->create_issue($project, $type, $summary, $description);
+        my $issue = $jira->create_issue($project, $type, $summary, $description, $fields);
 
     Creating a new issue requires the project key, type ("Bug", "Task",
-    etc.), and a summary and description. Other fields that are on the new
-    issue form could be supported by a subclass, but it's probably easier
-    to use "update_issue" with JIRA's syntax for now.
+    etc.), and a summary and description.
 
-    Returns a hash containing the information about the new issue or dies
-    if there is an error. See "JIRA ISSUE HASH FORMAT" for details of the
-    hash.
+    The optional $fields parameter can be used to pass a reference to a
+    hash of extra fields to be set when the issue is created, which avoids
+    the need for a separate "update_issue" call. For example:
+
+        $jira->create_issue($project, $type, $summary, $description, {
+            labels => [ "foo", "bar" ]
+        });
+
+    This method calls "create" and return the same hash reference that it
+    does.
 
  create_subtask
 
@@ -206,46 +235,116 @@ METHODS
     "Sub-task" or "sub-task", then you will need to pass in your subtask
     type.
 
-    Returns a hash containing the information about the new issue or dies
-    if there is an error. See "JIRA ISSUE HASH FORMAT" for details of the
-    hash.
+    This method calls "create" and return the same hash reference that it
+    does.
 
  update_issue
 
-        $jira->update_issue($key, $update_hash);
+        $jira->update_issue($key, $field_update_hash, $update_verb_hash);
 
-    Updating an issue is one place where JIRA's REST API shows through. You
-    pass in the issue key and update_hash with only the field changes you
-    want in it. See "JIRA ISSUE HASH FORMAT", above, for details about the
-    format of the update_hash.
+    There are two ways to express the updates you want to make to an issue.
+
+    For simple changes you pass $field_update_hash as a reference to a hash
+    of field_name => new_value pairs. For example:
+
+        $jira->update_issue($key, { summary => $new_summary });
+
+    That works for simple fields, but there are some, like comments, that
+    can't be updated in this way. For them you need to use
+    $update_verb_hash.
+
+    The $update_verb_hash parameter allow you to express a series of
+    specific operations (verbs) to be performed on each field. For example:
+
+        $jira->update_issue($key, undef, {
+            labels   => [ { remove => "test" }, { add => "another" } ],
+            comments => [ { remove => { id => 10001 } } ]
+        });
+
+    The two forms of update can be combined in a single call.
+
+    For more information see:
+
+        https://developer.atlassian.com/display/JIRADEV/JIRA+REST+API+Example+-+Edit+issues
+        https://developer.atlassian.com/display/JIRADEV/Updating+an+Issue+via+the+JIRA+REST+APIs
 
  get_issue
 
         my $issue = $jira->get_issue($key);
 
-    You can get the details for any issue, given its key. This call returns
-    a hash containing the information for the issue in JIRA's format. See
-    "JIRA ISSUE HASH FORMAT" for details.
+    Returns details for any issue, given its key. This call returns a hash
+    containing the information for the issue in JIRA's format. See "JIRA
+    ISSUE HASH FORMAT" for details.
 
  transition_issue
 
+        $jira->transition_issue($key, $transition);
         $jira->transition_issue($key, $transition, $update_hash);
 
     Transitioning an issue is what happens when you click the button that
     says "Resolve Issue" or "Start Progress" on it. Doing this from code is
-    harder, but JIRA::Client::Automated makes it as easy as possible. You
-    pass this method the issue key, the name of the transition (spacing and
-    capitalization matter), and an optional update_hash containing any
-    fields on the transition screen that you want to update.
+    harder, but JIRA::Client::Automated makes it as easy as possible.
+
+    You pass this method the issue key, the name of the transition or the
+    target status (spacing and capitalization matter), and an optional
+    update_hash containing any fields that you want to update.
+
+  Specifying The Transition
+
+    The provided $transition name is first matched against the available
+    transitions for the $key issue ('Start Progress', 'Close Issue'). If
+    there's no match then the names is matched against the available target
+    status names ('Open', 'Closed'). You can use whichever is most
+    appropriate. For example, in your configuration the transition names
+    might vary between different kinds of projects but the status names
+    might be the same. In which case scripts that are meant to work across
+    multiple projects might prefer to use the status names.
+
+    The $transition parameter can also be specified as a reference to an
+    array of names. In this case the first one that matches either a
+    transition name or status name is used. This makes it easier for
+    scripts to work across multiple kinds of projects and/or handle the
+    migration of names by allowing current and future names to be used, so
+    the later change in JIRA config doesn't cause any breakage.
+
+  Specifying Updates
 
     If you have required fields on the transition screen (such as
     "Resolution" for the "Resolve Issue" screen), you must pass those
     fields in as part of the update_hash or you will get an error from the
     server. See "JIRA ISSUE HASH FORMAT" for the format of the update_hash.
 
+    (Note: it appears that in some obscure cases missing required fields
+    may cause the transition to fail without causing an error from the
+    server. For example a field that's required but isn't configured to
+    appear on the transition screen.)
+
+    The $update_hash is a combination of the $field_update_hash and
+    $update_verb_hash parameters used by the "update_issue" method. Like
+    this:
+
+        $update_hash = {
+            fields => $field_update_hash,
+            update => $update_verb_hash
+        };
+
+    You can use it to express both simple field settings and more complex
+    update operations. For example:
+
+        $jira->transition_issue($key, $transition, {
+            fields => { summary => $new_summary },
+            update => {
+                labels   => [ { remove => "test" }, { add => "another" } ],
+                comments => [ { remove => { id => 10001 } } ]
+            }
+        });
+
  close_issue
 
-        $jira->close_issue($key, $resolve, $message);
+        $jira->close_issue($key);
+        $jira->close_issue($key, $resolve);
+        $jira->close_issue($key, $resolve, $comment);
+        $jira->close_issue($key, $resolve, $comment, $update_hash);
 
     Pass in the resolution reason and an optional comment to close an
     issue. Using this method requires that the issue is is a status where
@@ -259,9 +358,10 @@ METHODS
     If you do not supply a comment, the default value is "Issue closed by
     script".
 
-    If your JIRA installation has extra required fields on the "Close
-    Issue" screen then you'll want to use the more generic
-    "transition_issue" call instead.
+    The $update_hash can be used to set or edit the values of other fields.
+    See "transition_issue" for more details.
+
+    This method is a wrapper for "transition_issue".
 
  delete_issue
 
@@ -343,7 +443,9 @@ METHODS
 
         my $url = $jira->make_browse_url($key);
 
-    A helper method to make emails containing lists of bugs easier to use.
+    A helper method to return the ".../browse/$key" url for the issue. It's
+    handy to make emails containing lists of bugs easier to create.
+
     This just appends the key to the URL for the JIRA server so that you
     can click on it and go directly to that issue.
 
@@ -370,6 +472,8 @@ AUTHOR
 CREDITS
 
     Thanks very much to:
+
+    Tim Bunce <timb@cpan.org>
 
     Dominique Dumont <ddumont@cpan.org>
 
